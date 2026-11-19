@@ -1,6 +1,6 @@
 /* WUP Boy's player: Game Boy and Game Boy Color games on Peanut-GB (the cgb branch) with minigb_apu's sound, both MIT.
  * Started by WUP Boy (../main.c) with the game's path; HOME pauses (Resume, Save State, Load State, Restart,
- * Quit); leaving goes back
+ * Quit; Load State and Restart ask first); leaving goes back
  * to WUP Boy. The save (the cartridge's battery memory) is kept in saves/<game>.sav,
  * written at each pause and on leaving; the save state (the whole machine at one moment) in saves/<game>.state.
  *   Controls: A and B (X and Y too), + Start, - Select, the D-pad or the left stick. Hold ZL: rewind. Hold ZR: fast
@@ -197,6 +197,27 @@ static int state_load(void) {
     state_set(scratch);
     return 0;
 }
+/* a yes before something is lost: over the pause panel, in its colours. Cancel is the first choice; B cancels */
+static int confirm(const char *title, const char *line, const char *yes) {
+    int h = 76 + ROWS * 52 + 52, y = (GFX_H - h) / 2, pick = 0, bw = (PW - 28 * 2 - 14) / 2, by = y + h - 28 - 52;
+    for (;;) {
+        box(PX, y, PW, h, PANEL);
+        text_c(&font_label, y + 132, title, PANEL, 15);
+        text_c(&font_body, y + 168, line, PANEL, 9);
+        for (int i = 0; i < 2; i++) {
+            int bx = PX + 28 + i * (bw + 14), r = i == pick ? HILITE : PANEL; const char *t = i ? yes : "Cancel";
+            if (i == pick) box(bx, by, bw, 52, HILITE);
+            text(&font_label, bx + (bw - text_w(&font_label, t)) / 2, by + 35, t, r, 15);
+        }
+        wup_present8(0, GFX_H);
+        for (;;) {
+            unsigned p = pressed();
+            if (p & (WUP_B | WUP_HOME)) return 0;
+            if (p & WUP_A) return pick;
+            if (p & (WUP_LEFT | WUP_RIGHT)) { pick = p & WUP_RIGHT ? 1 : 0; break; }
+        }
+    }
+}
 static int pause_menu(const char *name) {              /* -> RESUME, LOAD_STATE (loaded), RESTART or QUIT */
     int sel = RESUME; just_saved = 0; has_state = fs_filesize(state_path) > 16;
     set_dim(1); pause_draw(name, sel);
@@ -205,7 +226,11 @@ static int pause_menu(const char *name) {              /* -> RESUME, LOAD_STATE 
         if (p & (WUP_B | WUP_HOME)) { sel = RESUME; break; }
         if (p & WUP_A) {
             if (sel == SAVE_STATE) { state_save(); pause_draw(name, sel); continue; }      /* (it says Saved; the menu stays) */
-            if (sel == LOAD_STATE && (!has_state || state_load())) continue;
+            if (sel == LOAD_STATE && !has_state) continue;
+            if (sel == LOAD_STATE || sel == RESTART) {      /* (where the game is now is lost: asked first) */
+                int yes = confirm(sel == RESTART ? "Restart the Game" : "Load the Saved State", "Where you are now is lost", sel == RESTART ? "Restart" : "Load");
+                if (!yes || (sel == LOAD_STATE && state_load())) { pause_draw(name, sel); continue; }
+            }
             break;
         }
         if (p & WUP_DOWN) sel = sel < ROWS - 1 ? sel + 1 : sel;
